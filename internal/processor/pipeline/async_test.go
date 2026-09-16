@@ -15,6 +15,7 @@ import (
 	"github.com/go-logr/logr"
 
 	"github.com/llm-d/llm-d-batch-gateway/internal/processor/batchctx"
+	batch_types "github.com/llm-d/llm-d-batch-gateway/internal/shared/types"
 	"github.com/llm-d/llm-d-batch-gateway/pkg/clients/inference"
 )
 
@@ -528,16 +529,41 @@ func TestAsyncDispatcher_ModelNotFound(t *testing.T) {
 	}
 }
 
+type requestSourceFunc func(context.Context, chan<- RequestItem) error
+
+var _ RequestSource = requestSourceFunc(nil)
+
+func (f requestSourceFunc) Produce(ctx context.Context, out chan<- RequestItem) error {
+	return f(ctx, out)
+}
+
 func TestAsyncCancellation(t *testing.T) {
 	tests := []struct {
-		name        string
-		cancelCause error
-		wantCode    string
+		name          string
+		cancelCause   error
+		sourceFailure bool
+		wantCode      string
 	}{
 		{
 			name:        "user cancellation",
-			cancelCause: context.Canceled,
+			cancelCause: batchctx.ErrCancelled,
 			wantCode:    "batch_cancelled",
+		},
+		{
+			name:        "system cancellation",
+			cancelCause: context.Canceled,
+			wantCode:    "batch_failed",
+		},
+		{
+			name:        "shutdown",
+			cancelCause: batchctx.ErrShutdown,
+			wantCode:    "batch_failed",
+		},
+		{
+			name:          "source failure",
+			cancelCause:   errors.New("source read failed"),
+			sourceFailure: true,
+			wantCode:      "batch_failed",
 		},
 		{
 			name:        "deadline expiry",
@@ -580,8 +606,28 @@ func TestAsyncCancellation(t *testing.T) {
 			tracker := NewProgressTracker(int64(len(items)), nil, "test-job", 0, logr.Discard())
 			collector := NewResultCollector(outputFile, errorFile, pending, tracker, logr.Discard())
 			dispatcher := NewAsyncDispatcher(resolver, broadcasters, pending, logr.Discard())
+			deliveryDone := make(chan struct{})
 			executor := NewJobExecutor(JobExecutorConfig{
-				Source:     &sliceSource{items: items},
+				Source: requestSourceFunc(func(ctx context.Context, out chan<- RequestItem) error {
+					defer close(out)
+					for _, item := range items {
+						select {
+						case out <- item:
+						case <-ctx.Done():
+							return ctx.Err()
+						}
+					}
+					if tt.sourceFailure {
+						// Fail only after submission and partial results have been collected.
+						select {
+						case <-deliveryDone:
+							return tt.cancelCause
+						case <-ctx.Done():
+							return ctx.Err()
+						}
+					}
+					return nil
+				}),
 				Dispatcher: dispatcher,
 				Collector:  collector,
 				Tracker:    tracker,
@@ -591,7 +637,6 @@ func TestAsyncCancellation(t *testing.T) {
 			parentCtx, parentCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer parentCancel()
 			ctx, cancel := context.WithCancelCause(parentCtx)
-			deliveryDone := make(chan struct{})
 			defer func() {
 				cancel(context.Canceled)
 				<-deliveryDone
@@ -617,18 +662,32 @@ func TestAsyncCancellation(t *testing.T) {
 						return
 					}
 				}
-				cancel(tt.cancelCause)
+				if !tt.sourceFailure {
+					cancel(tt.cancelCause)
+				}
 			}()
 
-			_, err := executor.Execute(ctx)
-			if err != nil && !errors.Is(err, ctx.Err()) {
-				t.Fatalf("Execute() error = %v, want nil or %v", err, ctx.Err())
-			}
+			counts, err := executor.Execute(ctx)
 			if parentCtx.Err() != nil {
 				t.Fatal("timed out waiting for async submission and partial results")
 			}
-			if !errors.Is(context.Cause(ctx), tt.cancelCause) {
-				t.Fatalf("cancellation cause = %v, want %v", context.Cause(ctx), tt.cancelCause)
+			if tt.sourceFailure {
+				if !errors.Is(err, tt.cancelCause) {
+					t.Fatalf("Execute() error = %v, want source error %v", err, tt.cancelCause)
+				}
+				if ctx.Err() != nil {
+					t.Fatalf("source failure should only cancel the executor's context, got %v", ctx.Err())
+				}
+			} else {
+				if err != nil && !errors.Is(err, ctx.Err()) {
+					t.Fatalf("Execute() error = %v, want nil or %v", err, ctx.Err())
+				}
+				if !errors.Is(context.Cause(ctx), tt.cancelCause) {
+					t.Fatalf("cancellation cause = %v, want %v", context.Cause(ctx), tt.cancelCause)
+				}
+			}
+			if counts.Completed != 3 || counts.Failed != int64(len(items)-3) {
+				t.Errorf("counts = %+v, want 3 completed and %d failed", counts, len(items)-3)
 			}
 
 			if got := countLines(readFile(t, outputFile)); got != 3 {
@@ -643,8 +702,9 @@ func TestAsyncCancellation(t *testing.T) {
 				if err := json.Unmarshal(line, &entry); err != nil {
 					t.Fatalf("unmarshal error output: %v", err)
 				}
-				if entry.Error == nil || entry.Error.Code != tt.wantCode {
-					t.Errorf("error = %+v, want code %q", entry.Error, tt.wantCode)
+				wantMessage := batch_types.BatchErrorCode(tt.wantCode).Message()
+				if entry.Error == nil || entry.Error.Code != tt.wantCode || entry.Error.Message != wantMessage {
+					t.Errorf("error = %+v, want code %q and message %q", entry.Error, tt.wantCode, wantMessage)
 				}
 			}
 

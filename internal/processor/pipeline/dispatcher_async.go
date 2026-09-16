@@ -99,7 +99,10 @@ func cancelCode(ctx context.Context) (string, string) {
 	if errors.Is(cause, context.DeadlineExceeded) || errors.Is(cause, batchctx.ErrExpired) {
 		return string(batch_types.ErrCodeBatchExpired), batch_types.ErrCodeBatchExpired.Message()
 	}
-	return string(batch_types.ErrCodeBatchCancelled), batch_types.ErrCodeBatchCancelled.Message()
+	if errors.Is(cause, batchctx.ErrCancelled) {
+		return string(batch_types.ErrCodeBatchCancelled), batch_types.ErrCodeBatchCancelled.Message()
+	}
+	return string(batch_types.ErrCodeBatchFailed), batch_types.ErrCodeBatchFailed.Message()
 }
 
 // cancelPending calls Cancel on every shared client with all pending IDs.
