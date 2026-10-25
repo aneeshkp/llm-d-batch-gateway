@@ -286,7 +286,7 @@ func NewClientset(ctx context.Context, component ucom.Component, opts ...Option)
 		default:
 			return nil, fmt.Errorf("unsupported async transport %q", cfg.asyncInference.Transport)
 		}
-		resolver, err := inference.NewAsyncResolver(*cfg.asyncInference, logger)
+		resolver, err := inference.NewAsyncResolver(ctx, *cfg.asyncInference, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create async inference clients: %w", err)
 		}

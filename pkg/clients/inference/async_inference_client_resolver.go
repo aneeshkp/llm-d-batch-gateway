@@ -136,7 +136,7 @@ func (r *AsyncGatewayResolver) Close() error {
 
 // NewAsyncResolver creates an AsyncGatewayResolver with one shared pool
 // (producer) per model/pool pair.
-func NewAsyncResolver(config AsyncClientConfig, logger logr.Logger) (*AsyncGatewayResolver, error) {
+func NewAsyncResolver(ctx context.Context, config AsyncClientConfig, logger logr.Logger) (*AsyncGatewayResolver, error) {
 	if config.ConsumerID == "" {
 		return nil, fmt.Errorf("consumerID must not be empty")
 	}
@@ -195,7 +195,7 @@ func NewAsyncResolver(config AsyncClientConfig, logger logr.Logger) (*AsyncGatew
 	var sqlStore *sqlqueue.Store
 	if transport == AsyncTransportSQL && len(config.Models) > 0 {
 		var err error
-		sqlStore, err = sqlqueue.Open(context.Background(), config.SQLURL)
+		sqlStore, err = sqlqueue.Open(ctx, config.SQLURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open async SQL store: %w", err)
 		}
@@ -238,7 +238,7 @@ func NewAsyncResolver(config AsyncClientConfig, logger logr.Logger) (*AsyncGatew
 			)
 		case AsyncTransportSQL:
 			p, err = producersql.New(
-				context.Background(),
+				ctx,
 				producersql.Config{
 					RequestQueueName: reqQueue,
 					ResultQueueName:  resQueue,

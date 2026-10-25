@@ -619,6 +619,9 @@ func (c *ProcessorConfig) validateAsyncDispatchConfig() error {
 	if c.AsyncDispatchConfig.ResultPollTimeout <= 0 {
 		return fmt.Errorf("async_dispatch.result_poll_timeout must be > 0")
 	}
+	if c.AsyncDispatchConfig.PollInterval <= 0 {
+		return fmt.Errorf("async_dispatch.poll_interval must be > 0")
+	}
 	if c.GlobalInferenceGateway != nil {
 		return fmt.Errorf("global_inference_gateway is not supported with dispatch_mode %q; use async_dispatch.models instead or explicitly set dispatch_mode: sync", DispatchModeAsync)
 	}

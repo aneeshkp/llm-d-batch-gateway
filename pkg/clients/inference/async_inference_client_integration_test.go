@@ -342,7 +342,7 @@ func TestAsyncResolverSQLPostgres_RoundTrip(t *testing.T) {
 	dispatcherID := "sql-roundtrip-dispatcher-" + suffix
 	requestID := "sql-roundtrip-request-" + suffix
 
-	resolver, err := NewAsyncResolver(AsyncClientConfig{
+	resolver, err := NewAsyncResolver(context.Background(), AsyncClientConfig{
 		Transport:         AsyncTransportSQL,
 		SQLURL:            sqlURL,
 		ConsumerID:        consumerID,
@@ -439,7 +439,7 @@ func TestAsyncResolver_RecoveryClientFor_crossProcessor(t *testing.T) {
 
 	newResolver := func(consumer string) *AsyncGatewayResolver {
 		t.Helper()
-		resolver, err := NewAsyncResolver(AsyncClientConfig{
+		resolver, err := NewAsyncResolver(context.Background(), AsyncClientConfig{
 			RedisURL:          "redis://" + mr.Addr(),
 			ConsumerID:        consumer,
 			ResultPollTimeout: 2 * time.Second,
@@ -448,7 +448,7 @@ func TestAsyncResolver_RecoveryClientFor_crossProcessor(t *testing.T) {
 			},
 		}, testLogger(t))
 		if err != nil {
-			t.Fatalf("NewAsyncResolver(%s): %v", consumer, err)
+			t.Fatalf("NewAsyncResolver(context.Background(), %s): %v", consumer, err)
 		}
 		t.Cleanup(func() { _ = resolver.Close() })
 		return resolver

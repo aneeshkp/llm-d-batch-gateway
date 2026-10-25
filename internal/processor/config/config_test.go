@@ -869,6 +869,7 @@ func TestProcessorConfig_Validate_AsyncDispatch(t *testing.T) {
 		c.DispatchMode = DispatchModeAsync
 		c.AsyncDispatchConfig = AsyncDispatchConfig{
 			ResultPollTimeout: 5 * time.Second,
+			PollInterval:      time.Second,
 			Models: map[string]AsyncModelConfig{
 				"llama-3": {InferencePoolName: "pool-a"},
 			},
@@ -925,6 +926,11 @@ func TestProcessorConfig_Validate_AsyncDispatch(t *testing.T) {
 		{
 			name:    "async zero result_poll_timeout",
 			mutate:  func(c *ProcessorConfig) { c.AsyncDispatchConfig.ResultPollTimeout = 0 },
+			wantErr: true,
+		},
+		{
+			name:    "async zero poll_interval",
+			mutate:  func(c *ProcessorConfig) { c.AsyncDispatchConfig.PollInterval = 0 },
 			wantErr: true,
 		},
 		{

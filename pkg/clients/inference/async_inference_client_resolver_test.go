@@ -44,7 +44,7 @@ func TestNewAsyncResolver(t *testing.T) {
 			ResultPollTimeout: time.Second,
 		}
 
-		r, err := NewAsyncResolver(cfg, testLogger(t))
+		r, err := NewAsyncResolver(context.Background(), cfg, testLogger(t))
 		if err != nil {
 			t.Fatalf("NewAsyncResolver: %v", err)
 		}
@@ -66,7 +66,7 @@ func TestNewAsyncResolver(t *testing.T) {
 	t.Run("returns nil for unknown model", func(t *testing.T) {
 		mr := miniredis.RunT(t)
 
-		r, err := NewAsyncResolver(AsyncClientConfig{
+		r, err := NewAsyncResolver(context.Background(), AsyncClientConfig{
 			RedisURL:   "redis://" + mr.Addr(),
 			ConsumerID: testAsyncConsumerID,
 			Models: map[string]AsyncModelPoolConfig{
@@ -86,7 +86,7 @@ func TestNewAsyncResolver(t *testing.T) {
 	t.Run("rejects duplicate pool mapping", func(t *testing.T) {
 		mr := miniredis.RunT(t)
 
-		_, err := NewAsyncResolver(AsyncClientConfig{
+		_, err := NewAsyncResolver(context.Background(), AsyncClientConfig{
 			RedisURL:   "redis://" + mr.Addr(),
 			ConsumerID: testAsyncConsumerID,
 			Models: map[string]AsyncModelPoolConfig{
@@ -101,7 +101,7 @@ func TestNewAsyncResolver(t *testing.T) {
 	})
 
 	t.Run("invalid Redis URL returns error", func(t *testing.T) {
-		_, err := NewAsyncResolver(AsyncClientConfig{
+		_, err := NewAsyncResolver(context.Background(), AsyncClientConfig{
 			RedisURL:   "not-a-url",
 			ConsumerID: testAsyncConsumerID,
 			Models: map[string]AsyncModelPoolConfig{
@@ -116,7 +116,7 @@ func TestNewAsyncResolver(t *testing.T) {
 
 	t.Run("rejects empty consumer ID", func(t *testing.T) {
 		mr := miniredis.RunT(t)
-		_, err := NewAsyncResolver(AsyncClientConfig{
+		_, err := NewAsyncResolver(context.Background(), AsyncClientConfig{
 			RedisURL: "redis://" + mr.Addr(),
 			Models: map[string]AsyncModelPoolConfig{
 				"model-a": {PoolName: "pool-a"},
@@ -131,7 +131,7 @@ func TestNewAsyncResolver(t *testing.T) {
 	t.Run("close releases resources", func(t *testing.T) {
 		mr := miniredis.RunT(t)
 
-		r, err := NewAsyncResolver(AsyncClientConfig{
+		r, err := NewAsyncResolver(context.Background(), AsyncClientConfig{
 			RedisURL:   "redis://" + mr.Addr(),
 			ConsumerID: testAsyncConsumerID,
 			Models: map[string]AsyncModelPoolConfig{
@@ -151,7 +151,7 @@ func TestNewAsyncResolver(t *testing.T) {
 	t.Run("SharedClientFor reuses the same client", func(t *testing.T) {
 		mr := miniredis.RunT(t)
 
-		r, err := NewAsyncResolver(AsyncClientConfig{
+		r, err := NewAsyncResolver(context.Background(), AsyncClientConfig{
 			RedisURL:   "redis://" + mr.Addr(),
 			ConsumerID: testAsyncConsumerID,
 			Models: map[string]AsyncModelPoolConfig{
@@ -178,7 +178,7 @@ func TestNewAsyncResolver(t *testing.T) {
 		)
 
 		newResolver := func(consumerID string) *AsyncGatewayResolver {
-			r, err := NewAsyncResolver(AsyncClientConfig{
+			r, err := NewAsyncResolver(context.Background(), AsyncClientConfig{
 				RedisURL:   "redis://" + mr.Addr(),
 				ConsumerID: consumerID,
 				Models: map[string]AsyncModelPoolConfig{
@@ -191,7 +191,7 @@ func TestNewAsyncResolver(t *testing.T) {
 				ResultPollTimeout: time.Second,
 			}, testLogger(t))
 			if err != nil {
-				t.Fatalf("NewAsyncResolver(%q): %v", consumerID, err)
+				t.Fatalf("NewAsyncResolver(context.Background(), %q): %v", consumerID, err)
 			}
 			t.Cleanup(func() { _ = r.Close() })
 			return r
@@ -273,7 +273,7 @@ func TestNewAsyncResolver(t *testing.T) {
 		}
 	})
 	t.Run("requires SQL URL for SQL transport", func(t *testing.T) {
-		_, err := NewAsyncResolver(AsyncClientConfig{
+		_, err := NewAsyncResolver(context.Background(), AsyncClientConfig{
 			Transport:         AsyncTransportSQL,
 			ConsumerID:        testAsyncConsumerID,
 			ResultPollTimeout: time.Second,
@@ -310,7 +310,7 @@ func TestNewAsyncResolverSQLPostgres(t *testing.T) {
 		t.Skip("TEST_POSTGRES_URL not set")
 	}
 
-	r, err := NewAsyncResolver(AsyncClientConfig{
+	r, err := NewAsyncResolver(context.Background(), AsyncClientConfig{
 		Transport:         AsyncTransportSQL,
 		SQLURL:            sqlURL,
 		ConsumerID:        testAsyncConsumerID,
