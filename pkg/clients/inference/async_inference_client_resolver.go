@@ -38,6 +38,20 @@ const (
 	AsyncTransportSQL            = "sql"
 )
 
+// NormalizeAsyncTransport applies the backward-compatible default and validates
+// the transport name shared by config validation and resolver construction.
+func NormalizeAsyncTransport(transport string) (string, error) {
+	if transport == "" {
+		return AsyncTransportRedisSortedSet, nil
+	}
+	switch transport {
+	case AsyncTransportRedisSortedSet, AsyncTransportSQL:
+		return transport, nil
+	default:
+		return "", fmt.Errorf("unsupported async transport %q", transport)
+	}
+}
+
 // AsyncModelPoolConfig holds the resolved pool and queue settings for one async model.
 type AsyncModelPoolConfig struct {
 	PoolName         string
@@ -140,12 +154,9 @@ func NewAsyncResolver(ctx context.Context, config AsyncClientConfig, logger logr
 	if config.ConsumerID == "" {
 		return nil, fmt.Errorf("consumerID must not be empty")
 	}
-	transport := config.Transport
-	if transport == "" {
-		transport = AsyncTransportRedisSortedSet
-	}
-	if transport != AsyncTransportRedisSortedSet && transport != AsyncTransportSQL {
-		return nil, fmt.Errorf("unsupported async transport %q", transport)
+	transport, err := NormalizeAsyncTransport(config.Transport)
+	if err != nil {
+		return nil, err
 	}
 
 	var rdb redis.UniversalClient

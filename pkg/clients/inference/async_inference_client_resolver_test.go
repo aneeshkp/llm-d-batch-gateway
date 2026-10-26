@@ -30,6 +30,38 @@ import (
 
 const testAsyncConsumerID = "processor-0"
 
+func TestNormalizeAsyncTransport(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		want      string
+		wantError bool
+	}{
+		{name: "empty defaults to Redis", input: "", want: AsyncTransportRedisSortedSet},
+		{name: "Redis remains supported", input: AsyncTransportRedisSortedSet, want: AsyncTransportRedisSortedSet},
+		{name: "SQL is supported", input: AsyncTransportSQL, want: AsyncTransportSQL},
+		{name: "unknown transport is rejected", input: "unknown", wantError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NormalizeAsyncTransport(tt.input)
+			if tt.wantError {
+				if err == nil {
+					t.Fatal("expected an error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NormalizeAsyncTransport: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("transport = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNewAsyncResolver(t *testing.T) {
 	t.Run("creates per-model clients", func(t *testing.T) {
 		mr := miniredis.RunT(t)

@@ -607,14 +607,8 @@ func (c *ProcessorConfig) validateSyncDispatchConfig() error {
 }
 
 func (c *ProcessorConfig) validateAsyncDispatchConfig() error {
-	transport := c.AsyncDispatchConfig.Transport
-	if transport == "" {
-		transport = inference.AsyncTransportRedisSortedSet
-	}
-	switch transport {
-	case inference.AsyncTransportRedisSortedSet, inference.AsyncTransportSQL:
-	default:
-		return fmt.Errorf("async_dispatch.transport must be %q or %q, got %q", inference.AsyncTransportRedisSortedSet, inference.AsyncTransportSQL, transport)
+	if _, err := inference.NormalizeAsyncTransport(c.AsyncDispatchConfig.Transport); err != nil {
+		return fmt.Errorf("async_dispatch.transport: %w", err)
 	}
 	if c.AsyncDispatchConfig.ResultPollTimeout <= 0 {
 		return fmt.Errorf("async_dispatch.result_poll_timeout must be > 0")

@@ -800,6 +800,8 @@ async_dispatch:
   models:
     model-a:
       inference_pool_name: pool-a
+      request_queue_name: "custom:requests"
+      result_queue_name: "custom:results"
 `
 	if err := os.WriteFile(path, []byte(yamlData), 0o600); err != nil {
 		t.Fatalf("write YAML: %v", err)
@@ -834,6 +836,12 @@ async_dispatch:
 	}
 	if resolved.Async.Models["model-a"].PoolName != "pool-a" {
 		t.Fatalf("resolved model pool = %q, want pool-a", resolved.Async.Models["model-a"].PoolName)
+	}
+	if resolved.Async.Models["model-a"].RequestQueueName != "custom:requests" {
+		t.Fatalf("resolved request queue = %q, want custom:requests", resolved.Async.Models["model-a"].RequestQueueName)
+	}
+	if resolved.Async.Models["model-a"].ResultQueueName != "custom:results" {
+		t.Fatalf("resolved result queue = %q, want custom:results", resolved.Async.Models["model-a"].ResultQueueName)
 	}
 }
 

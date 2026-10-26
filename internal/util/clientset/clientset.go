@@ -266,8 +266,13 @@ func NewClientset(ctx context.Context, component ucom.Component, opts ...Option)
 	// build inference client(s)
 	switch {
 	case cfg.asyncInference != nil:
-		switch cfg.asyncInference.Transport {
-		case "", inference.AsyncTransportRedisSortedSet:
+		transport, err := inference.NormalizeAsyncTransport(cfg.asyncInference.Transport)
+		if err != nil {
+			return nil, err
+		}
+		cfg.asyncInference.Transport = transport
+		switch transport {
+		case inference.AsyncTransportRedisSortedSet:
 			if cfg.asyncInference.RedisURL == "" {
 				redisURL, err := ucom.ReadSecretFile(ucom.SecretKeyRedisURL)
 				if err != nil {
@@ -283,8 +288,6 @@ func NewClientset(ctx context.Context, component ucom.Component, opts ...Option)
 			if cfg.asyncInference.SQLURL == "" {
 				return nil, fmt.Errorf("async SQL transport requires a PostgreSQL URL")
 			}
-		default:
-			return nil, fmt.Errorf("unsupported async transport %q", cfg.asyncInference.Transport)
 		}
 		resolver, err := inference.NewAsyncResolver(ctx, *cfg.asyncInference, logger)
 		if err != nil {
