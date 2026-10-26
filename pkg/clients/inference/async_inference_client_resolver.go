@@ -308,12 +308,12 @@ func NewAsyncResolver(ctx context.Context, config AsyncClientConfig, logger logr
 // forwarding of deliveries to their current batch owner.
 const recoveryClaimLeaseTTL = 60 * time.Second
 
-// RecoveryClientFor returns a Redis client that consumes the per-processor
-// result route of consumer — the route on which that processor's
-// unacknowledged deliveries are stranded after a disruption. A processor
-// recovering a batch reads the previous submitter's route through it so a
-// completed result is checkpointed instead of re-inferred. SQL does not
-// support this operation because its current result read is destructive.
+// RecoveryClientFor returns a client that consumes the per-processor result
+// route of consumer — the route on which that processor's unacknowledged
+// deliveries are stranded after a disruption. A processor recovering a batch
+// reads the previous submitter's route through it so a completed result is
+// checkpointed instead of re-inferred. Currently only Redis supports this
+// operation; SQL result reads are destructive.
 func (r *AsyncGatewayResolver) RecoveryClientFor(modelID, consumerID string) (AsyncInferenceClient, error) {
 	if r.clientFactories != nil {
 		return nil, fmt.Errorf("recovery clients require a real async transport")
