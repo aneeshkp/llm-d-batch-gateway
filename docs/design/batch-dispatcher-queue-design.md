@@ -111,6 +111,7 @@ async_dispatch:
   transport: "redis-sortedset"       # or "sql"
   result_poll_timeout: "5s"
   poll_interval: "1s"                # SQL polling interval
+  max_connections: 8                 # SQL store pool per processor (SQL only)
 model_gateways:
   "llama-3":
     url: "http://gateway-a:8000"              # used in sync mode
@@ -181,6 +182,7 @@ ap:
 ```yaml
 async_dispatch:
   transport: sql
+  max_connections: 8
   models:
     "llama-3":
       inference_pool_name: "pool-a"
@@ -190,6 +192,10 @@ async_dispatch:
 
 The `result_queue_name` in the Batch Processor is the base name; the
 Processor appends its replica identity to isolate result consumers.
+`max_connections` caps the SQL store pool per processor replica (default 8).
+Budget `processor replicas × max_connections` against PostgreSQL
+`max_connections`, in addition to the gateway's other PostgreSQL pools and the
+llm-d-async dispatcher's own SQL pool.
 
 ### Future Extension: Queue Registry
 

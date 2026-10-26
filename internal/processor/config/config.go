@@ -158,6 +158,10 @@ type AsyncDispatchConfig struct {
 	// PollInterval controls how frequently the SQL transport checks for results.
 	PollInterval time.Duration `yaml:"poll_interval"`
 
+	// MaxConnections caps the SQL store connection pool for this processor.
+	// Only used when Transport is "sql".
+	MaxConnections int `yaml:"max_connections"`
+
 	// Models maps model names to their async dispatch targets.
 	// Required when DispatchMode == "async".
 	Models map[string]AsyncModelConfig `yaml:"models"`
@@ -444,6 +448,7 @@ func NewConfig() *ProcessorConfig {
 		DispatchMode: DispatchModeSync,
 		AsyncDispatchConfig: AsyncDispatchConfig{
 			Transport:         inference.AsyncTransportRedisSortedSet,
+			MaxConnections:    inference.DefaultSQLMaxConns,
 			ResultPollTimeout: 5 * time.Second,
 			PollInterval:      time.Second,
 		},
@@ -607,8 +612,12 @@ func (c *ProcessorConfig) validateSyncDispatchConfig() error {
 }
 
 func (c *ProcessorConfig) validateAsyncDispatchConfig() error {
-	if _, err := inference.NormalizeAsyncTransport(c.AsyncDispatchConfig.Transport); err != nil {
+	transport, err := inference.NormalizeAsyncTransport(c.AsyncDispatchConfig.Transport)
+	if err != nil {
 		return fmt.Errorf("async_dispatch.transport: %w", err)
+	}
+	if transport == inference.AsyncTransportSQL && c.AsyncDispatchConfig.MaxConnections <= 0 {
+		return fmt.Errorf("async_dispatch.max_connections must be > 0")
 	}
 	if c.AsyncDispatchConfig.ResultPollTimeout <= 0 {
 		return fmt.Errorf("async_dispatch.result_poll_timeout must be > 0")
@@ -780,6 +789,7 @@ func ResolveModelGateways(cfg *ProcessorConfig) (*ResolvedGateways, error) {
 		}
 		result.Async = &inference.AsyncClientConfig{
 			Transport:         cfg.AsyncDispatchConfig.Transport,
+			MaxConnections:    cfg.AsyncDispatchConfig.MaxConnections,
 			Models:            models,
 			ResultPollTimeout: cfg.AsyncDispatchConfig.ResultPollTimeout,
 			PollInterval:      cfg.AsyncDispatchConfig.PollInterval,

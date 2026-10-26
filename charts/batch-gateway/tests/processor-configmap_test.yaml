@@ -463,13 +463,14 @@ tests:
         transport: sql
         resultPollTimeout: "30s"
         pollInterval: "2s"
+        maxConnections: 12
         models:
           "sim-model":
             inferencePoolName: "sim-pool"
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'async_dispatch:[\s\S]*transport: "sql"[\s\S]*poll_interval: "2s"'
+          pattern: 'async_dispatch:[\s\S]*transport: "sql"[\s\S]*poll_interval: "2s"[\s\S]*max_connections: 12'
   - it: should render resumable tunables with defaults
     asserts:
       - matchRegex:

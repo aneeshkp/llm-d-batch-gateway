@@ -364,6 +364,9 @@ processor:
       transport: "redis-sortedset"
       resultPollTimeout: "30s"
       pollInterval: "1s"
+      # SQL transport only: max PostgreSQL connections per processor replica.
+      # Budget processor replicas × maxConnections against max_connections.
+      maxConnections: 8
       models: {}
 
     # Resumable pipeline tunables — every batch runs resumably, so there is

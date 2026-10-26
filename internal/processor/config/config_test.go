@@ -796,6 +796,7 @@ dispatch_mode: async
 async_dispatch:
   transport: sql
   poll_interval: 275ms
+  max_connections: 7
   result_poll_timeout: 11s
   models:
     model-a:
@@ -817,6 +818,9 @@ async_dispatch:
 	if cfg.AsyncDispatchConfig.PollInterval != 275*time.Millisecond {
 		t.Fatalf("parsed poll interval = %v, want 275ms", cfg.AsyncDispatchConfig.PollInterval)
 	}
+	if cfg.AsyncDispatchConfig.MaxConnections != 7 {
+		t.Fatalf("parsed max connections = %d, want 7", cfg.AsyncDispatchConfig.MaxConnections)
+	}
 
 	resolved, err := ResolveModelGateways(cfg)
 	if err != nil {
@@ -830,6 +834,9 @@ async_dispatch:
 	}
 	if resolved.Async.PollInterval != 275*time.Millisecond {
 		t.Fatalf("resolved poll interval = %v, want 275ms", resolved.Async.PollInterval)
+	}
+	if resolved.Async.MaxConnections != 7 {
+		t.Fatalf("resolved max connections = %d, want 7", resolved.Async.MaxConnections)
 	}
 	if resolved.Async.ResultPollTimeout != 11*time.Second {
 		t.Fatalf("resolved result poll timeout = %v, want 11s", resolved.Async.ResultPollTimeout)
@@ -876,6 +883,7 @@ func TestProcessorConfig_Validate_AsyncDispatch(t *testing.T) {
 		c := NewConfig()
 		c.DispatchMode = DispatchModeAsync
 		c.AsyncDispatchConfig = AsyncDispatchConfig{
+			MaxConnections:    inference.DefaultSQLMaxConns,
 			ResultPollTimeout: 5 * time.Second,
 			PollInterval:      time.Second,
 			Models: map[string]AsyncModelConfig{
@@ -899,6 +907,21 @@ func TestProcessorConfig_Validate_AsyncDispatch(t *testing.T) {
 			name: "SQL transport is valid",
 			mutate: func(c *ProcessorConfig) {
 				c.AsyncDispatchConfig.Transport = inference.AsyncTransportSQL
+			},
+			wantErr: false,
+		},
+		{
+			name: "SQL transport requires max connections",
+			mutate: func(c *ProcessorConfig) {
+				c.AsyncDispatchConfig.Transport = inference.AsyncTransportSQL
+				c.AsyncDispatchConfig.MaxConnections = 0
+			},
+			wantErr: true,
+		},
+		{
+			name: "redis transport ignores max connections",
+			mutate: func(c *ProcessorConfig) {
+				c.AsyncDispatchConfig.MaxConnections = 0
 			},
 			wantErr: false,
 		},

@@ -36,6 +36,12 @@ const (
 	asyncQueuePrefix             = "llm-d-async:"
 	AsyncTransportRedisSortedSet = "redis-sortedset"
 	AsyncTransportSQL            = "sql"
+
+	// DefaultSQLMaxConns caps the SQL store pool per processor replica when the
+	// transport configuration does not set a value. The upstream default is 32,
+	// which can consume a large share of PostgreSQL max_connections once it is
+	// multiplied by the processor replica count.
+	DefaultSQLMaxConns = 8
 )
 
 // NormalizeAsyncTransport applies the backward-compatible default and validates
@@ -65,6 +71,7 @@ type AsyncClientConfig struct {
 	RedisURL          string
 	SQLURL            string
 	ConsumerID        string // identity of this Batch Processor replica
+	MaxConnections    int    // SQL store pool cap; 0 selects DefaultSQLMaxConns
 	Models            map[string]AsyncModelPoolConfig
 	ResultPollTimeout time.Duration // per-poll timeout in the result dispatcher loop
 	PollInterval      time.Duration // backend queue polling interval
@@ -205,8 +212,12 @@ func NewAsyncResolver(ctx context.Context, config AsyncClientConfig, logger logr
 	}
 	var sqlStore *sqlqueue.Store
 	if transport == AsyncTransportSQL && len(config.Models) > 0 {
+		maxConns := config.MaxConnections
+		if maxConns <= 0 {
+			maxConns = DefaultSQLMaxConns
+		}
 		var err error
-		sqlStore, err = sqlqueue.Open(ctx, config.SQLURL)
+		sqlStore, err = sqlqueue.Open(ctx, config.SQLURL, sqlqueue.WithMaxConns(maxConns))
 		if err != nil {
 			return nil, fmt.Errorf("failed to open async SQL store: %w", err)
 		}

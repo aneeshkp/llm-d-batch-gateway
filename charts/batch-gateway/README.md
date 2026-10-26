@@ -136,6 +136,7 @@ processor:
       transport: sql
       resultPollTimeout: "30s"
       pollInterval: "1s"
+      maxConnections: 8
       models:
         "llama-3":
           inferencePoolName: pool-a
@@ -146,6 +147,10 @@ processor:
 `redis-sortedset` is the default and reads `redis-url` from the configured
 Secret. `sql` uses the PostgreSQL URL already configured for `db_client` and
 does not require Redis for the Batch Processor's async request/result queues.
+Each processor replica opens its own SQL store pool; `maxConnections` caps that
+pool (default 8). Budget `processor replicas × maxConnections` against
+PostgreSQL `max_connections`, in addition to the gateway's other PostgreSQL
+pools and the llm-d-async dispatcher's own SQL pool.
 The separately deployed llm-d-async dispatcher must use the same transport,
 queue names, and PostgreSQL Secret:
 
