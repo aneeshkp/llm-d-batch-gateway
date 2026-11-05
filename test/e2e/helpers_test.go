@@ -715,25 +715,32 @@ const e2eCurlPod = "batch-gateway-e2e-curl"
 func ensureE2ECurlPod(t *testing.T) {
 	t.Helper()
 
-	if phaseOut, err := exec.Command("kubectl", "get", "pod",
+	// One query returns "<phase> <run-id>"; both are empty if the pod is absent.
+	out, err := exec.Command("kubectl", "get", "pod",
 		e2eCurlPod,
 		"-n", testNamespace,
-		"-o", "jsonpath={.status.phase}",
-	).CombinedOutput(); err != nil || strings.TrimSpace(string(phaseOut)) == "" {
-		createE2ECurlPod(t)
-	} else {
-		phase := strings.TrimSpace(string(phaseOut))
-		if phase != "Running" && phase != "Pending" {
-			out, deleteErr := exec.Command("kubectl", "delete", "pod",
-				e2eCurlPod,
-				"-n", testNamespace,
-				"--ignore-not-found",
-			).CombinedOutput()
-			if deleteErr != nil {
-				t.Fatalf("failed to delete stale e2e curl pod: %v\n%s", deleteErr, out)
-			}
-			createE2ECurlPod(t)
+		"--ignore-not-found",
+		"-o", `jsonpath={.status.phase} {.metadata.labels.e2e_run_id}`,
+	).CombinedOutput()
+	if err != nil {
+		t.Fatalf("failed to read e2e curl pod: %v\n%s", err, out)
+	}
+	phase, podRunID, _ := strings.Cut(strings.TrimSpace(string(out)), " ")
+	if !e2eCurlPodCanBeReused(phase, podRunID, testRunID) {
+		// A different test process may have died before its cleanup touched
+		// the per-generator sentinels. Recreate the pod to reap those remote
+		// loops while keeping independent sentinels within this test run.
+		out, deleteErr := exec.Command("kubectl", "delete", "pod",
+			e2eCurlPod,
+			"-n", testNamespace,
+			"--ignore-not-found",
+			"--wait=true",
+			"--timeout=90s",
+		).CombinedOutput()
+		if deleteErr != nil {
+			t.Fatalf("failed to delete e2e curl pod from a previous run: %v\n%s", deleteErr, out)
 		}
+		createE2ECurlPod(t)
 	}
 
 	waitOut, err := exec.Command("kubectl", "wait",
@@ -747,21 +754,67 @@ func ensureE2ECurlPod(t *testing.T) {
 	}
 }
 
+func e2eCurlPodCanBeReused(phase, podRunID, currentRunID string) bool {
+	return (phase == "Running" || phase == "Pending") && podRunID == currentRunID
+}
+
+func TestE2ECurlPodReuseIsScopedToCurrentRun(t *testing.T) {
+	tests := []struct {
+		name     string
+		phase    string
+		podRunID string
+		runID    string
+		want     bool
+	}{
+		{name: "running in same run", phase: "Running", podRunID: "run-a", runID: "run-a", want: true},
+		{name: "pending in same run", phase: "Pending", podRunID: "run-a", runID: "run-a", want: true},
+		{name: "running from prior run", phase: "Running", podRunID: "run-a", runID: "run-b"},
+		{name: "pending from prior run", phase: "Pending", podRunID: "run-a", runID: "run-b"},
+		{name: "missing run label", phase: "Running", podRunID: "", runID: "run-a"},
+		{name: "terminal pod", phase: "Succeeded", podRunID: "run-a", runID: "run-a"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := e2eCurlPodCanBeReused(tt.phase, tt.podRunID, tt.runID); got != tt.want {
+				t.Fatalf("e2eCurlPodCanBeReused(%q, %q, %q) = %v, want %v", tt.phase, tt.podRunID, tt.runID, got, tt.want)
+			}
+		})
+	}
+}
+
 func createE2ECurlPod(t *testing.T) {
 	t.Helper()
 
+	// runAsUser must be numeric: runAsNonRoot cannot be verified against a
+	// symbolic image USER (curl_user), which leaves the pod in
+	// CreateContainerError on containerd-based clusters (kind in CI). 100
+	// matches the default image's curl_user, and any numeric non-root uid
+	// works for swapped images (e.g. UBI), since the e2e scripts never
+	// depend on a passwd entry.
 	manifest := fmt.Sprintf(`apiVersion: v1
 kind: Pod
 metadata:
   name: %s
   namespace: %s
+  labels:
+    e2e_run_id: "%s"
 spec:
   restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
   containers:
   - name: curl
-    image: curlimages/curl:8.8.0
+    image: %s
     command: ["sleep", "infinity"]
-`, e2eCurlPod, testNamespace)
+    securityContext:
+      runAsUser: 100
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+`, e2eCurlPod, testNamespace, testRunID, testCurlImage)
 
 	cmd := exec.Command("kubectl", "create", "-f", "-")
 	cmd.Stdin = strings.NewReader(manifest)

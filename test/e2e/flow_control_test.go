@@ -29,7 +29,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -224,6 +226,29 @@ func waitForEPPInteractiveDispatch(t *testing.T, deployment string, before float
 	t.Fatalf("EPP %s dispatched no interactive request within %v (before=%.0f, last=%.0f)", deployment, timeout, before, last)
 }
 
+// newLoadSentinel returns a stop-sentinel path unique to one interactive load
+// generator: testRunID separates test runs and the nanosecond timestamp
+// separates generators, so a reused curl pod never sees a stale sentinel.
+func newLoadSentinel() string {
+	return fmt.Sprintf("/tmp/e2e-load-stop-%s-%d", testRunID, time.Now().UnixNano())
+}
+
+// interactiveLoadScript builds the shell script the curl pod runs: one
+// background loop per worker sending interactive chat completions to the
+// model's EPP, each sending its next request as soon as the previous returns,
+// until the generator's sentinel file appears. A file flag keeps the stop path
+// independent of the helper image's process tools, and scoped to this
+// generator (unlike pkill by pattern). The script never creates or removes the
+// sentinel, so a stop signal that arrives before the script starts is still
+// honored.
+func interactiveLoadScript(sentinel string, concurrency int, model string) string {
+	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:8081/v1/chat/completions", eppDeploymentFor(model), testNamespace)
+	body := fmt.Sprintf(`{"model":%q,"max_tokens":%d,"messages":[{"role":"user","content":"interactive"}]}`, model, saturationMaxTokens)
+	objective := fmt.Sprintf("x-gateway-inference-objective: interactive-default-%s", model)
+	return fmt.Sprintf(`for i in $(seq 1 %d); do (while [ ! -f %s ]; do curl -sS -o /dev/null -m 300 -X POST %s -H 'content-type: application/json' -H %s -d %s; done) & done; wait`,
+		concurrency, shQuote(sentinel), shQuote(url), shQuote(objective), shQuote(body))
+}
+
 // startInteractiveLoad keeps `concurrency` interactive chat completions in
 // flight against the model's EPP from the in-cluster curl pod, each worker
 // sending its next request as soon as the previous one returns, until the
@@ -236,11 +261,9 @@ func startInteractiveLoad(t *testing.T, model string, concurrency int) func() {
 
 	ensureE2ECurlPod(t)
 
-	url := fmt.Sprintf("http://%s.%s.svc.cluster.local:8081/v1/chat/completions", eppDeploymentFor(model), testNamespace)
-	body := fmt.Sprintf(`{"model":%q,"max_tokens":%d,"messages":[{"role":"user","content":"interactive"}]}`, model, saturationMaxTokens)
-	objective := fmt.Sprintf("x-gateway-inference-objective: interactive-default-%s", model)
-	script := fmt.Sprintf(`for i in $(seq 1 %d); do (while true; do curl -sS -o /dev/null -m 300 -X POST %s -H 'content-type: application/json' -H %s -d %s; done) & done; wait`,
-		concurrency, shQuote(url), shQuote(objective), shQuote(body))
+	// Touching this generator's own sentinel stops only its loops.
+	sentinel := newLoadSentinel()
+	script := interactiveLoadScript(sentinel, concurrency, model)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", testNamespace, e2eCurlPod, "--", "sh", "-c", script)
@@ -248,23 +271,49 @@ func startInteractiveLoad(t *testing.T, model string, concurrency int) func() {
 		cancel()
 		t.Fatalf("failed to start interactive load: %v", err)
 	}
-	t.Logf("interactive load started: %d concurrent requests at %s", concurrency, url)
+	t.Logf("interactive load started: %d concurrent requests to model %s", concurrency, model)
 
 	var once sync.Once
 	stop := func() {
 		once.Do(func() {
-			cancel()
-			_ = cmd.Wait()
-			// Cancelling kubectl does not kill the shell loop inside the pod.
-			out, err := exec.Command("kubectl", "exec", "-n", testNamespace, e2eCurlPod, "--", "sh", "-c", "pkill -f 'curl -sS' ; pkill -f 'while true'; true").CombinedOutput()
+			// Signal the remote loops to stop issuing new requests first,
+			// while kubectl still works. Callers release the choked engine
+			// right after stopping the load, so do not wait here for the
+			// in-flight requests to drain: once the engine is released they
+			// finish quickly, and each curl is bounded by -m 300 anyway.
+			out, err := exec.Command("kubectl", "exec", "-n", testNamespace, e2eCurlPod, "--", "sh", "-c", "touch "+shQuote(sentinel)).CombinedOutput()
 			if err != nil {
 				t.Logf("stopping interactive load in pod: %v\n%s", err, out)
 			}
+			// Reap the local kubectl process. Cancelling it does not kill
+			// the remote loops; they observe the sentinel and exit on their
+			// own after their in-flight request completes.
+			cancel()
+			_ = cmd.Wait()
 			t.Log("interactive load stopped")
 		})
 	}
 	t.Cleanup(stop)
 	return stop
+}
+
+// TestInteractiveLoadScriptStopsOnSentinel runs the load script with its
+// sentinel already present: the loops must exit without sending a request, so
+// a stop signal that lands before the script starts is still honored.
+func TestInteractiveLoadScriptStopsOnSentinel(t *testing.T) {
+	sentinel := filepath.Join(t.TempDir(), "stop")
+	if err := os.WriteFile(sentinel, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "sh", "-c", interactiveLoadScript(sentinel, 3, "m")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("load script did not exit cleanly on a pre-existing sentinel: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatalf("load script removed the sentinel: %v", err)
+	}
 }
 
 // waitForBatchFailures polls a batch until RequestCounts.Failed > 0 or it

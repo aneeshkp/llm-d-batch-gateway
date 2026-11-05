@@ -44,6 +44,12 @@ var (
 	testDBUser            = getEnvOrDefault("TEST_DB_USER", "postgres")
 	testEPPNamespace      = getEnvOrDefault("TEST_EPP_NAMESPACE", "")
 
+	// testCurlImage is the image of the shared e2e curl pod. It must
+	// provide curl, sh, sleep, seq and touch. Environments that cannot
+	// pull from Docker Hub (e.g. downstream CI) can point it at a UBI
+	// image via TEST_CURL_IMAGE.
+	testCurlImage = getEnvOrDefault("TEST_CURL_IMAGE", "curlimages/curl:8.8.0")
+
 	// testDBClientType and testExchangeClientType are detected from Helm
 	// releases at startup; see detectDBClientType / detectExchangeClientType.
 	testDBClientType       string
